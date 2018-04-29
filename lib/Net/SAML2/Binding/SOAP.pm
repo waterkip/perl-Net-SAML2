@@ -1,11 +1,19 @@
 use strict;
 use warnings;
 package Net::SAML2::Binding::SOAP;
-# VERSION
 
+use Carp;
+use HTTP::Request::Common;
+use LWP::UserAgent;
+
+use HTTP::Request::Common;
+use LWP::UserAgent;
 use Moose;
 use MooseX::Types::URI qw/ Uri /;
+use Net::SAML2::Util qw(:all);
+use Net::SAML2::XML::Sig;
 use Net::SAML2::XML::Util qw/ no_comments /;
+use XML::LibXML;
 
 # ABSTRACT: Net::SAML2::Binding::Artifact - SOAP binding for SAML
 
@@ -27,11 +35,6 @@ Net::SAML2::Binding::Artifact - SOAP binding for SAML2
 =head1 METHODS
 
 =cut
-
-use Net::SAML2::XML::Sig;
-use XML::LibXML;
-use LWP::UserAgent;
-use HTTP::Request::Common;
 
 =head2 new( ... )
 
@@ -103,10 +106,17 @@ sub request {
     $req->header('Content-Length' => length $request);
     $req->content($request);
 
-    my $ua = $self->ua;
-    my $res = $ua->request($req);
+    my $res = $self->assert_request($req);
 
-    return $self->handle_response($res->content);
+    return $self->handle_response($res);
+}
+
+sub assert_request {
+    my ($self, $request) = @_;
+
+    my $res =$self->ua->request($request);
+    return $res->decoded_content if $res->is_success;
+    die "Request returned an invalid response: " . $res->as_string;
 }
 
 =head2 handle_response( $response )
@@ -120,35 +130,36 @@ Accepts a string containing the complete SOAP response.
 sub handle_response {
     my ($self, $response) = @_;
 
-    # verify the response
-    my $x = Net::SAML2::XML::Sig->new(
-    {
-        x509 => 1,
-        cert_text => $self->idp_cert,
-        exclusive => 1,
-        no_xml_declaration => 1,
-    });
-
-    my $ret = $x->verify($response);
-    die "bad SOAP response" unless $ret;
-
-    # verify the signing certificate
-    my $cert = $x->signer_cert;
-    my $ca = Crypt::OpenSSL::Verify->new($self->cacert, { strict_certs => 0, });
-    $ret = $ca->verify($cert);
-    die "bad signer cert" unless $ret;
-
+    my $xml = get_soap_body($response);
+    my $cert = $self->verify_saml($xml);
     my $subject = sprintf("%s (verified)", $cert->subject);
 
-    # parse the SOAP response and return the payload
-    my $dom = no_comments($response);
+    return ($subject, $xml);
+}
 
-    my $parser = XML::LibXML::XPathContext->new($dom);
-    $parser->registerNs('soap-env', 'http://schemas.xmlsoap.org/soap/envelope/');
-    $parser->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
+sub verify_saml {
+    my ($self, $xml) = @_;
 
-    my $saml = $parser->findnodes_as_string('/soap-env:Envelope/soap-env:Body/*');
-    return ($subject, $saml);
+    my $sig = Net::SAML2::XML::Sig->new(
+        {
+            cert_text          => $self->idp_cert,
+            exclusive          => 1,
+            no_xml_declaration => 1,
+            x509               => 1,
+        }
+    );
+    # TODO: Does this still exist?
+    $sig->assert($xml);
+
+    # verify the signing certificate
+    my $cert = $sig->signer_cert;
+    my $ca = Crypt::OpenSSL::VerifyX509->new($self->cacert,
+        { strict_certs => 0 });
+
+    if (!$ca->verify($cert)) {
+        croak "Bad signer certificate for" . $cert->subject;
+    }
+    return $cert;
 }
 
 =head2 handle_request( $request )
@@ -163,14 +174,12 @@ sub handle_request {
     my ($self, $request) = @_;
 
     my $dom = no_comments($request);
+     my $saml = get_soap_body($request);
 
-    my $parser = XML::LibXML::XPathContext->new($dom);
-    $parser->registerNs('soap-env', 'http://schemas.xmlsoap.org/soap/envelope/');
-    $parser->registerNs('samlp', 'urn:oasis:names:tc:SAML:2.0:protocol');
-
-    my ($nodes) = $parser->findnodes('/soap-env:Envelope/soap-env:Body/*');
-    my $saml = $nodes->toString;
-
+    # TODO: check if this still works
+    # my $cert = $self->verify_saml($saml);
+    # my $subject = $cert->subject;
+    # return ($subject, $saml);
     if (defined $saml) {
         my $x = Net::SAML2::XML::Sig->new({ x509 => 1, cert_text => $self->idp_cert, exclusive => 1, });
         my $ret = $x->verify($saml);
