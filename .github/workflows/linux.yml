@@ -9,53 +9,22 @@ jobs:
     strategy:
       matrix:
         perl-version:
-          #- '5.10'
-          #- '5.12'
-          #- '5.14'
-          #- '5.16'
-          #- '5.18'
-          #- '5.20'
-          #- '5.22'
-          #- '5.24'
-          #- '5.26'
-          #- '5.28'
-          #- '5.30'
+          - '5.10'
+          - '5.12'
+          - '5.14'
+          - '5.16'
+          - '5.18'
+          - '5.20'
+          - '5.22'
+          - '5.24'
+          - '5.26'
+          - '5.28'
+          - '5.30'
           - '5.32'
     container:
       image: perl:${{ matrix.perl-version }}
     steps:
       - uses: actions/checkout@v1
-      #- name: Install Dependencies
-      #  run: |
-          #cpanm -n \
-          #Devel::Cover::Report::Coveralls #\
-          #Dist::Zilla \
-          #Dist::Zilla::App::Command::cover \
-          #Dist::Zilla::Plugin::CheckChangeLog \
-          #Dist::Zilla::Plugin::ExtraTests \
-          #Dist::Zilla::Plugin::GitHub::Meta \
-          #Dist::Zilla::Plugin::MetaProvides::Package \
-          #Dist::Zilla::Plugin::MinimumPerl \
-          #Dist::Zilla::Plugin::PerlTidy \
-          #Dist::Zilla::Plugin::PodCoverageTests \
-          #Dist::Zilla::Plugin::PodSyntaxTests \
-          #Dist::Zilla::Plugin::RewriteVersion \
-          #Dist::Zilla::Plugin::Test::Kwalitee \
-          #Dist::Zilla::Plugin::Test::Kwalitee::Extra \
-          #Dist::Zilla::Plugin::Test::Perl::Critic \
-          #Dist::Zilla::Plugin::Test::Portability \
-          #Dist::Zilla::Plugin::Test::UnusedVars \
-          #Dist::Zilla::Plugin::Meta::Maintainers \
-          #Dist::Zilla::Plugin::Meta::Contributors \
-          #Dist::Zilla::Plugin::Repository \
-          #Dist::Zilla::Plugin::Test::EOL \
-          #Dist::Zilla::Plugin::Test::EOF \
-          #Dist::Zilla::Plugin::Test::NoTabs \
-          #Dist::Zilla::Plugin::Test::TrailingSpace \
-          #Dist::Zilla::Plugin::PodWeaver \
-          #Dist::Zilla::Plugin::VersionFromModule \
-          #Dist::Zilla::Plugin::AuthorsFromGit;
-          #dzil authordeps --missing | cpanm;
       - name: Install Crypt::OpenSSL::VerifyX509
         run: |
           curl -sL https://cpanmin.us/ | perl - -nq inc::Module::Install \
@@ -66,7 +35,7 @@ jobs:
           perl Makefile.PL;
           make install;
           cd ..;
-      - name: Install Depends
+      - name: Install Net::SAML2 Depends
         run: |
           apt-get install libxml2-dev make gcc;
           curl -sL https://cpanmin.us/ | perl - -nq --installdeps . ;
