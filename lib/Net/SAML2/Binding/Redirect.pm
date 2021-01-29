@@ -94,13 +94,35 @@ The double encoding requires it to be decoded prior to processing.
 
 =cut
 
-has 'key'   => (isa => 'Str', is => 'ro', required => 1);
-has 'cert'  => (isa => 'Str', is => 'ro', required => 1);
-has 'url'   => (isa => Uri, is => 'ro', required => 1, coerce => 1);
-has 'param' => (isa => 'Str', is => 'ro', required => 1);
+has 'key'   => (isa => 'Str',      is => 'ro', required => 1);
+has 'cert'  => (isa => 'ArrayRef', is => 'ro', required => 1);
+has 'url'   => (isa => Uri,        is => 'ro', required => 1, coerce => 1);
+has 'param' => (isa => 'Str',      is => 'ro', required => 1);
 has 'sig_hash' => (isa => 'Str', is => 'ro', required => 0);
 has 'sls_force_lcase_url_encoding'    => (isa => 'Bool', is => 'ro', required => 0);
 has 'sls_double_encoded_response' => (isa => 'Bool', is => 'ro', required => 0);
+
+=head2 BUILDARGS
+
+Earlier versions expected the cert to be a string.  However, metadata
+can include multiple signing certificates so the $idp->cert is now
+expected to be an arrayref to the certificates.  To avoid breaking existing
+applications this changes the the cert to an arrayref if it is not
+already an array ref.
+
+=cut
+
+around BUILDARGS => sub {
+    my $orig = shift;
+    my $self = shift;
+
+    my %params = @_;
+    if ($params{cert} && !ref($params{cert})) {
+            $params{cert} = [$params{cert}];
+    }
+
+    return $self->$orig(%params);
+};
 
 =head2 sign( $request, $relaystate )
 
@@ -172,9 +194,6 @@ sub verify {
     # verify the response
     my $sigalg = $u->query_param('SigAlg');
 
-    my $cert = Crypt::OpenSSL::X509->new_from_string($self->cert);
-    my $rsa_pub = Crypt::OpenSSL::RSA->new_public_key($cert->pubkey);
-
     my $signed;
     my $saml_request;
     my $sig = $u->query_param_delete('Signature');
@@ -214,22 +233,27 @@ sub verify {
 
     $sig = decode_base64($sig);
 
-    if ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256') {
-        $rsa_pub->use_sha256_hash;
-    } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha224') {
-        $rsa_pub->use_sha224_hash;
-    } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384') {
-        $rsa_pub->use_sha384_hash;
-    } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512') {
-        $rsa_pub->use_sha512_hash;
-    } elsif ($sigalg eq 'http://www.w3.org/2000/09/xmldsig#rsa-sha1') {
-        $rsa_pub->use_sha1_hash;
-    } else {
-        die "Unsupported Signature Algorithim: $sigalg";
+    foreach my $crt (@{ $self->cert }) {
+        for my $use (keys %{$crt}) {
+            my $cert = Crypt::OpenSSL::X509->new_from_string($crt->{$use});
+            my $rsa_pub = Crypt::OpenSSL::RSA->new_public_key($cert->pubkey);
+
+            if ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256') {
+                $rsa_pub->use_sha256_hash;
+            } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha224') {
+                $rsa_pub->use_sha224_hash;
+            } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384') {
+                $rsa_pub->use_sha384_hash;
+            } elsif ($sigalg eq 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512') {
+                $rsa_pub->use_sha512_hash;
+            } elsif ($sigalg eq 'http://www.w3.org/2000/09/xmldsig#rsa-sha1') {
+                $rsa_pub->use_sha1_hash;
+            } else {
+                die "Unsupported Signature Algorithim: $sigalg";
+            }
+            die "bad sig" unless $rsa_pub->verify($signed, $sig);
+        }
     }
-
-    die "bad sig" unless $rsa_pub->verify($signed, $sig);
-
     # unpack the SAML request
     my $deflated = decode_base64($saml_request);
     my $request = '';
