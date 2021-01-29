@@ -13,7 +13,7 @@ my $redirect = Net::SAML2::Binding::Redirect->new(
     key     => 't/net-saml2-key.pem',
     url     => 'https://netsaml2-testapp.local/sls-redirect-response',
     param   => 'SAMLRequest',
-    cert    => read_text('t/net-saml2-cert.pem'),
+    cert    => { 'signing' => read_text('t/net-saml2-cert.pem') },
     sig_hash => 'sha256',
     sls_force_lcase_url_encoding => 1,
 );
