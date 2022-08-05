@@ -1,0 +1,17 @@
+---
+name: docker-image
+
+on:
+  - push
+
+jobs:
+  dockerimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Get remote docker image
+        run: docker pull perl:5.36 || true
+      - name: Build docker image
+        run: docker build --cache-from perl:5.36 -t netsaml2:5.36 .
+      - name: Run tests
+        run: docker run netsaml2:5.36 prove -l
