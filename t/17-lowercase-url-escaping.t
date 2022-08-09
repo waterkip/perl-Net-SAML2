@@ -1,6 +1,6 @@
 use Test::Lib;
 use Test::Net::SAML2;
-use Test::More tests => 2;
+use Test::More tests => 4;
 
 use Net::SAML2::Binding::Redirect;
 use File::Slurper qw/read_text/;
@@ -24,4 +24,14 @@ like($request, qr/NETSAML/, 'Good Signature if sls_force_lcase_url_encoding = 1'
 
 $redirect->{sls_force_lcase_url_encoding} = 0;
 
-throws_ok( sub { $redirect->verify($url) }, qr/bad sig/, "Bad Signature if sls_force_lcase_url_encoding = 0");
+throws_ok( sub { $redirect->verify($url) }, qr/bad sig/, 'Bad Signature if sls_force_lcase_url_encoding = 0');
+
+$url =~ s/(%..)/uc($1)/ge;
+
+throws_ok( sub { $redirect->verify($url) }, qr/bad sig/, 'Bad Signature if sls_force_lcase_url_encoding = 0 on URL incorrectly Normalized');
+
+$redirect->{sls_force_lcase_url_encoding} = 1;
+
+($request, $relaystate) = $redirect->verify($url);
+
+like($request, qr/NETSAML/, 'Good Signature if sls_force_lcase_url_encoding = 1 on URL incorrectly Normalized');
