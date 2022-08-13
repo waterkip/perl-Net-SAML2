@@ -63,6 +63,18 @@ lives_ok(
     "We can create a binding redirect without key/url for verification purposes"
 );
 
+lives_ok(
+    sub {
+        my $binding = Net::SAML2::Binding::Redirect->new(
+            param => 'SAMLRequest',
+            url   => 'https://foo.example.com',
+            key   => $sp->key,
+        );
+        isa_ok($binding, "Net::SAML2::Binding::Redirect");
+    },
+    "We do not need a cert to sign a SAMLRequest"
+);
+
 throws_ok(
     sub {
         Net::SAML2::Binding::Redirect->new(

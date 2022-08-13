@@ -97,7 +97,7 @@ The double encoding requires it to be decoded prior to processing.
 
 =cut
 
-has 'cert' => (isa => 'ArrayRef', is => 'ro', required => 1);
+has 'cert' => (isa => 'ArrayRef', is => 'ro', required => 0, predicate => 'has_cert');
 has 'url'  => (isa => Uri, is => 'ro', required => 0, coerce => 1, predicate => 'has_url');
 has 'key'  => (isa => 'Str', is => 'ro', required => 0, predicate => 'has_key');
 
@@ -139,6 +139,9 @@ sub BUILD {
     if ($self->param eq 'SAMLRequest') {
         croak("Need to have an URL specified") unless $self->has_url;
         croak("Need to have a key specified") unless $self->has_key;
+    }
+    if ($self->param eq 'SAMLResponse') {
+        croak("Need to have a cert specified") unless $self->has_cert;
     }
     # other params don't need to have these per-se
 }
