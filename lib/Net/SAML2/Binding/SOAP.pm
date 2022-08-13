@@ -1,17 +1,12 @@
-use strict;
-use warnings;
 package Net::SAML2::Binding::SOAP;
+use Moose;
+
 # VERSION
 
-use Moose;
 use MooseX::Types::URI qw/ Uri /;
 use Net::SAML2::XML::Util qw/ no_comments /;
 
-# ABSTRACT: Net::SAML2::Binding::Artifact - SOAP binding for SAML
-
-=head1 NAME
-
-Net::SAML2::Binding::Artifact - SOAP binding for SAML2
+# ABSTRACT: Net::SAML2::Binding::SOAP - SOAP binding for SAML
 
 =head1 SYNOPSIS
 
