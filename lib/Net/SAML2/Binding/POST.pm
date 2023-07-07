@@ -94,38 +94,14 @@ sub sign_xml {
     croak("Need to have a cert specified") unless $self->has_cert;
     croak("Need to have a key specified") unless $self->has_key;
 
-    my $signer = XML::Sig->new({
+    my $signer = Net::SAML2::XML::Sig->new({
                         key => $self->key,
                         cert => $self->cert,
                         no_xml_declaration => 1,
                     }
                 );
 
-    my $signed_message = $signer->sign($request);
-
-    # saml-schema-protocol-2.0.xsd Schema hack
-    #
-    # The real fix here is to fix XML::Sig to accept a XPATH to
-    # place the signature in the correct location.  Or use XML::LibXML
-    # here to do so
-    #
-    # The protocol schema defines a sequence which requires the order
-    # of the child elements in a Protocol based message:
-    #
-    # The dsig:Signature (should it exist) MUST follow the saml:Issuer
-    #
-    # 1: saml:Issuer
-    # 2: dsig:Signature
-    #
-    # Seems like an oversight in the SAML schema specifiation but...
-
-    $signed_message =~ s!(<dsig:Signature.*?</dsig:Signature>)!!s;
-    my $signature = $1;
-    $signed_message =~ s/(<\/saml\d*:Issuer>)/$1$signature/;
-
-    my $encoded_request = encode_base64($signed_message, "\n");
-
-    return $encoded_request;
+    return encode_base64($signer->sign($request) . "\n");
 
 }
 __PACKAGE__->meta->make_immutable;
