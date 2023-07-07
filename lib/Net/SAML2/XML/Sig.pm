@@ -42,33 +42,34 @@ sub _fix_signature_location {
     $xp->registerNs('samlp', URN_PROTOCOL);
     $xp->registerNs('ds', URN_SIGNATURE);
 
-    _remove_data_from_xml($xml, 'pre-fix.xml') if $DEBUG;
+    _remove_data_from_xml($xml, 'pre-fix.xml');
 
-    my $issuers = $xp->findnodes('//saml:Issuer');
-    return $xml unless $issuers->size;
+    return $xml unless $xp->exists('//saml:Issuer');
 
-    $issuers->foreach(
+    my $ids = $xp->findnodes('//@ID');
+    $ids->foreach(
         sub {
-            my $issuer = $_;
-            my $parent = $issuer->parentNode;
-            my $ids = $xp->findnodes('//@ID', $issuer);
-            my @ids = uniq $ids->map(sub { $_->getValue });
-
-            my $sig = $xp->findnodes('//ds:Signature//@URI');
+            my $parent = $_->parentNode;
+            my $issuers = $xp->findnodes('./saml:Issuer', $parent);
+            return unless $issuers->size;
+            my $issuer = $issuers->get_node(1);
+            my $ip = $issuer->parentNode;
+            my $sig = $xp->findnodes(sprintf('//ds:Signature/ds:SignedInfo/ds:Reference[@URI="#%s"]/..', $_->getValue));
             $sig->foreach(
                 sub {
-                    my $node = $_->parentNode->parentNode->parentNode;
+                    my $node = $_->parentNode;
                     $node->unbindNode;
-                    $parent->insertAfter($node, $issuer);
+                    $ip->insertAfter($node, $issuer);
                 }
             );
         }
     );
 
+
     local $XML::LibXML::skipXMLDeclaration = $self->{no_xml_declaration};
     $xml = $xp->getContextNode->toString;
 
-    _remove_data_from_xml($xml, 'post-fix.xml') if $DEBUG;
+    _remove_data_from_xml($xml, 'post-fix.xml');
 
     return $xml;
 }
@@ -76,7 +77,6 @@ sub _fix_signature_location {
 sub _remove_data_from_xml {
     my $xml = shift;
     my $filename = shift;
-    return unless $DEBUG;
 
     my $dom = XML::LibXML->load_xml(string => $xml);
     my $xp  = XML::LibXML::XPathContext->new($dom);
@@ -84,19 +84,19 @@ sub _remove_data_from_xml {
     $xp->registerNs('samlp', URN_PROTOCOL);
     $xp->registerNs('ds', URN_SIGNATURE);
 
-    $xp->findnodes('//dsig:SignatureValue')->foreach(
+    $xp->findnodes('//ds:SignatureValue')->foreach(
         sub {
             $_->removeChildNodes;
             $_->appendText('Signature value removed');
         }
-    );
+    ) if $DEBUG;
 
-    $xp->findnodes('//dsig:X509Certificate')->foreach(
+    $xp->findnodes('//ds:X509Certificate')->foreach(
         sub {
             $_->removeChildNodes;
             $_->appendText('X509Certificate value removed');
         }
-    );
+    ) if $DEBUG;
 
     $xml = $xp->getContextNode->toString;
     open my $fh, '>', $filename;

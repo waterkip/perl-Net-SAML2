@@ -30,12 +30,16 @@ my $xp = get_xpath(
 
 my $root     = $xp->getContextNode->documentElement;
 my @children = $root->nonBlankChildNodes;
-is(@children, 2, "We have two children");
-cmp_deeply(
-    [map { $_->localname } @children],
-    [qw(bar Signature)],
-    "... with the correct local names"
-);
+if (is(@children, 2, "We have two children")) {
+    cmp_deeply(
+        [map { $_->localname } @children],
+        [qw(bar Signature)],
+        "... with the correct local names"
+    );
+}
+else {
+    diag $root;
+}
 
 {
     my $sig = Net::SAML2::XML::Sig->new(
@@ -56,33 +60,64 @@ cmp_deeply(
 {
     my $sig = Net::SAML2::XML::Sig->new({ key => 't/sign-nopw-cert.pem' });
 
-    my $urn = URN_ASSERTION,
-    my $xml = qq{
-<saml:Xml xmlns:saml="$urn">
+    my $urn = URN_ASSERTION, my $xml = qq{
+<saml:Xml xmlns:saml="$urn" ID="bar">
 <saml:Issuer>FooBar</saml:Issuer>
-<saml:Foo ID="bar">
+<saml:Foo ID="foo">
 <saml:bar>foo</saml:bar>
 </saml:Foo>
 </saml:Xml>
 };
-    my $s = $sig->sign($xml);
-my $xp = get_xpath(
-    $s,
-    ds   => URN_SIGNATURE,
-    xenc => URN_ENCRYPTION,
-    saml => $urn,
-);
+    my $s  = $sig->sign($xml);
+    my $xp = get_xpath(
+        $s,
+        ds   => URN_SIGNATURE,
+        xenc => URN_ENCRYPTION,
+        saml => $urn,
+    );
 
-my $root     = $xp->getContextNode->documentElement;
-is($root->localname, 'Xml', 'Root of the XML is correct');
-my @children = $root->nonBlankChildNodes;
-is(@children, 3, "We have two children");
-cmp_deeply(
-    [map { $_->localname } @children],
-    [qw(Issuer Signature Foo)],
-    "... with the correct local names"
-);
+    my $root = $xp->getContextNode->documentElement;
+    is($root->localname, 'Xml', 'Root of the XML is correct');
+    my @children = $root->nonBlankChildNodes;
+    if (is(@children, 3, "We have three children")) {
+        cmp_deeply(
+            [map { $_->localname } @children],
+            [qw(Issuer Signature Foo)],
+            "... with the correct local names"
+        );
+    }
+    else {
+        diag $root;
+    }
 
+
+}
+
+{
+    my $sig = Net::SAML2::XML::Sig->new({ key => 't/sign-nopw-cert.pem' });
+    open my $fh, '<', 't/data/signed-signature-unordered.xml';
+    my $xml;
+    { 
+        local $/ = undef;
+        $xml = <$fh>;
+        close($fh);
+    }
+
+    $XML::Sig::DEBUG = 1;
+    my $post = $sig->_fix_signature_location($xml);
+    diag $post;
+    ok($sig->verify($post), "We verified the XML");
+
+    $sig = Net::SAML2::XML::Sig->new(
+        {
+            key       => 't/sign-nopw-cert.pem',
+            x509      => 1,
+            exclusive => 1
+        }
+    );
+
+    ok($sig->verify($post),
+        "We verified the XML as Net::SAML2::Role::VerifyXML::verify_xml");
 }
 
 
