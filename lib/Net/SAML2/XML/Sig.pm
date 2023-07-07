@@ -46,13 +46,6 @@ sub _fix_signature_location {
     $xp->registerNs('ds', URN_SIGNATURE);
 
     my $issuer = $xp->findnodes('//saml:Issuer');
-    if ($issuer->size > 1) {
-
-        $issuer->foreach(sub { warn $_->nodePath; warn $_->toString });
-        warn $xml;
-
-    }
-
     return $xml unless $issuer->size;
     $issuer = $issuer->get_node(1);
 
