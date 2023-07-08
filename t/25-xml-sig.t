@@ -6,38 +6,54 @@ use URI;
 
 use Net::SAML2::XML::Sig;
 use URN::OASIS::SAML2 qw(:urn);
-my $urn = URN_ASSERTION;
+use MIME::Base64 qw/decode_base64/;
 
+my $urn = URN_ASSERTION;
+#$Net::SAML2::XML::Sig::DEBUG = 1;
+#$XML::Sig::DEBUG = 1;
 
 my $sig = Net::SAML2::XML::Sig->new({ key => 't/sign-nopw-cert.pem' });
 my $xml = q{
-<foo ID="abc">
+<foo ID="12345">
     <bar>123</bar>
 </foo>
 };
 
-my $s = $sig->sign($xml);
+diag $XML::Sig::VERSION;
 
+my $s  = $sig->sign($xml);
+
+test_signature_ok($s, 'foo', qw(bar Signature));
 my $first_line = (split /\n/, $s)[0];
 my $xml_decl   = '<?xml version="1.0"?>';
 is($first_line, $xml_decl, "Got the $xml_decl");
 
-my $xp = get_xpath(
-    $s,
-    ds   => URN_SIGNATURE,
-    xenc => URN_ENCRYPTION,
-);
+sub test_signature_ok {
+    my $xml = shift;
+    my $local_name = shift;
+    my @expect = @_;
 
-my $root     = $xp->getContextNode->documentElement;
-my @children = $root->nonBlankChildNodes;
-if (is(@children, 2, "We have two children")) {
-    cmp_deeply(
+    my $xp = get_xpath(
+        $xml,
+        ds   => URN_SIGNATURE,
+        xenc => URN_ENCRYPTION,
+        saml => $urn,
+    );
+
+    my $root = $xp->getContextNode->documentElement;
+    is($root->localname, $local_name, 'Root of the XML is correct: $localname');
+    my @children = $root->nonBlankChildNodes;
+
+    my $ok = cmp_deeply(
         [map { $_->localname } @children],
-        [qw(bar Signature)],
+        \@expect,
         "... with the correct local names"
     );
-}
-else {
+
+    return $ok if $ok;
+
+    diag explain [map { $_->localname } @children];
+    diag explain \@expect;
     diag $root;
 }
 
@@ -54,13 +70,14 @@ else {
 
     my $first_line = (split /\n/, $s)[0];
     my $xml_decl   = '<?xml version="1.0"?>';
-    isnt($first_line, $xml_decl, "Got the $xml_decl");
+    isnt($first_line, $xml_decl, "Did not get the $xml_decl");
 }
 
 {
     my $sig = Net::SAML2::XML::Sig->new({ key => 't/sign-nopw-cert.pem' });
 
-    my $urn = URN_ASSERTION, my $xml = qq{
+    my $urn = URN_ASSERTION;
+my $xml = qq{
 <saml:Xml xmlns:saml="$urn" ID="bar">
 <saml:Issuer>FooBar</saml:Issuer>
 <saml:Foo ID="foo">
@@ -68,30 +85,10 @@ else {
 </saml:Foo>
 </saml:Xml>
 };
-    my $s  = $sig->sign($xml);
-    my $xp = get_xpath(
-        $s,
-        ds   => URN_SIGNATURE,
-        xenc => URN_ENCRYPTION,
-        saml => $urn,
-    );
 
-    my $root = $xp->getContextNode->documentElement;
-    is($root->localname, 'Xml', 'Root of the XML is correct');
-    my @children = $root->nonBlankChildNodes;
-    if (is(@children, 3, "We have three children")) {
-        cmp_deeply(
-            [map { $_->localname } @children],
-            [qw(Issuer Signature Foo)],
-            "... with the correct local names"
-        );
-    }
-    else {
-        diag $root;
-    }
-
-
+    test_signature_ok($xml, 'Xml', qw(Issuer Foo));
 }
+
 
 {
     my $sig = Net::SAML2::XML::Sig->new({ key => 't/sign-nopw-cert.pem' });
@@ -103,12 +100,12 @@ else {
         close($fh);
     }
 
-    $XML::Sig::DEBUG = 1;
-    my $post = $sig->_fix_signature_location($xml);
-    diag $post;
-    ok($sig->verify($post), "We verified the XML");
 
-    $sig = Net::SAML2::XML::Sig->new(
+    my $post = $sig->sign($xml);
+    test_signature_ok($xml, 'Response', qw(Issuer Status Assertion));
+    diag $post;
+
+    my $verifyXML = Net::SAML2::XML::Sig->new(
         {
             key       => 't/sign-nopw-cert.pem',
             x509      => 1,
@@ -116,8 +113,9 @@ else {
         }
     );
 
-    ok($sig->verify($post),
+    ok($verifyXML->verify($post),
         "We verified the XML as Net::SAML2::Role::VerifyXML::verify_xml");
+
 }
 
 

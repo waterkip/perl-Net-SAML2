@@ -67,7 +67,7 @@ sub _fix_signature_location {
 
 
     local $XML::LibXML::skipXMLDeclaration = $self->{no_xml_declaration};
-    $xml = $xp->getContextNode->toString;
+    $xml = $xp->getContextNode->toString();
 
     _remove_data_from_xml($xml, 'post-fix.xml');
 
