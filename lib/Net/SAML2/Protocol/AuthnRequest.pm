@@ -170,12 +170,34 @@ has identity_providers => (
     predicate => 'has_identity_providers',
 );
 
+has nameid_format => (
+    isa       => 'Str',
+    is        => 'ro',
+    predicate => 'has_nameid_format',
+);
+
+has nameid_namequalifier => (
+    isa       => 'Str',
+    is        => 'ro',
+    predicate => 'has_nameid_namequalifier',
+);
+
+has __self_legacy => (
+    isa     => 'Bool',
+    is      => 'rw',
+    default => 1,
+);
+
 around BUILDARGS => sub {
     my $orig = shift;
     my $self = shift;
 
     my %params = @_;
-    if ($params{nameid_format} && !defined $params{nameidpolicy_format}) {
+    if ($params{nameid_namequalifier} && $params{nameid_format}) {
+        $self->__self_legacy(0);
+        # Don't do anything, this is good
+    }
+    elsif ($params{nameid_format} && !defined $params{nameidpolicy_format}) {
         Net::SAML2::Util::deprecation_warning "You are using nameid_format, "
           . "this field has changed to nameidpolicy_format. This field will "
           . "be used for other purposes in an upcoming release. Please change "
@@ -279,7 +301,24 @@ sub _set_name_id {
     my $self = shift;
     return unless $self->has_nameid;
     my $x = shift;
-    return $x->Subject($saml, $x->NameID($saml, {NameQualifier => $self->nameid}));
+    if ($self->__self_legacy) {
+        return $x->Subject($saml,
+            $x->NameID($saml, { NameQualifier => $self->nameid }));
+    }
+
+    return $x->Subject(
+        $saml,
+        $x->NameID(
+            $saml,
+            {
+                $self->nameid_namequalifier
+                ? (NameQualifier => $self->nameid_namequalifier)
+                : (),
+                $self->nameid_format ? (Format => $self->nameid_format) : (),
+            },
+            $self->nameid
+        )
+    );
 }
 
 sub _set_name_policy_format {
@@ -295,7 +334,6 @@ sub _set_name_policy_format {
             : (),
         }
     );
-
 }
 
 sub _set_requested_authn_context {
