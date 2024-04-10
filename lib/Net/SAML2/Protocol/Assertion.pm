@@ -15,6 +15,7 @@ use XML::LibXML::XPathContext;
 use List::Util qw(first);
 use URN::OASIS::SAML2 qw(STATUS_SUCCESS);
 use Carp qw(croak);
+use Net::SAML2::Types qw(XsdID);
 
 with 'Net::SAML2::Role::ProtocolMessage';
 
@@ -29,7 +30,7 @@ with 'Net::SAML2::Role::ProtocolMessage';
 =cut
 
 has 'attributes' => (isa => 'HashRef[ArrayRef]', is => 'ro', required => 1);
-has 'audience'   => (isa => NonEmptySimpleStr, is => 'ro', required => 1);
+has 'audience'   => (isa => NonEmptySimpleStr, is => 'ro', required => 0);
 has 'not_after'  => (isa => DateTime,          is => 'ro', required => 1);
 has 'not_before' => (isa => DateTime,          is => 'ro', required => 1);
 has 'session'         => (isa => 'Str', is => 'ro', required => 1);
@@ -162,8 +163,18 @@ sub new_from_xml {
     );
     $xpath->setContextNode($dec);
 
+    my $assertions = $xpath->findnodes('//samlp:Response/saml:Assertion');
+    croak "Unable to determine assertion node" if $assertions->size != 1;
+    my $assertion = $assertions->get_node(1);
+
+    my $issuer = $xpath->findvalue('saml:Issuer', $assertion);
+    croak "Invalid issuer, none defined" if !NonEmptySimpleStr->check($issuer);
+
+    my $id = $xpath->findvalue('//saml:Assertion/@ID');
+    croak "No valid ID supplied" if !XsdID->check($id);
+
     my $attributes = {};
-    for my $node ($xpath->findnodes('//saml:Assertion/saml:AttributeStatement/saml:Attribute/saml:AttributeValue/..'))
+    for my $node ($xpath->findnodes('saml:AttributeStatement/saml:Attribute/saml:AttributeValue/..', $assertion))
     {
         my @values = $xpath->findnodes("saml:AttributeValue", $node);
         $attributes->{$node->getAttribute('Name')} = [map $_->string_value, @values];
@@ -172,7 +183,7 @@ sub new_from_xml {
     my $xpath_base = '//samlp:Response/saml:Assertion/saml:Conditions/';
 
     my $not_before;
-    if (my $value = $xpath->findvalue($xpath_base . '@NotBefore')) {
+    if (my $value = $xpath->findvalue('saml:Conditions/@NotBefore', $assertion)) {
         $not_before = DateTime::Format::XSD->parse_datetime($value);
     }
     elsif (my $global = $xpath->findvalue('//saml:Conditions/@NotBefore')) {
@@ -183,7 +194,7 @@ sub new_from_xml {
     }
 
     my $not_after;
-    if (my $value = $xpath->findvalue($xpath_base . '@NotOnOrAfter')) {
+    if (my $value = $xpath->findvalue('saml:Conditions/@NotOnOrAfter', $assertion)) {
         $not_after = DateTime::Format::XSD->parse_datetime($value);
     }
     elsif (my $global = $xpath->findvalue('//saml:Conditions/@NotOnOrAfter')) {
@@ -194,7 +205,7 @@ sub new_from_xml {
     }
 
     my $nameid;
-    if (my $node = $xpath->findnodes('/samlp:Response/saml:Assertion/saml:Subject/saml:NameID')) {
+    if (my $node = $xpath->findnodes('saml:Subject/saml:NameID', $assertion)) {
         $nameid = $node->get_node(1);
     }
     elsif (my $global = $xpath->findnodes('//saml:Subject/saml:NameID')) {
@@ -202,7 +213,7 @@ sub new_from_xml {
     }
 
     my $authnstatement;
-    if (my $node = $xpath->findnodes('/samlp:Response/saml:Assertion/saml:AuthnStatement')) {
+    if (my $node = $xpath->findnodes('saml:AuthnStatement', $assertion)) {
         $authnstatement = $node->get_node(1);
     }
 
@@ -218,14 +229,16 @@ sub new_from_xml {
         $substatus = $s->getAttribute('Value');
     }
 
+    my $audience = $xpath->findvalue('//saml:Conditions/saml:AudienceRestriction/saml:Audience');
+
     my $self = $class->new(
-        id             => $xpath->findvalue('//saml:Assertion/@ID'),
-        issuer         => $xpath->findvalue('//saml:Assertion/saml:Issuer'),
+        id             => $id,
+        issuer         => $issuer,
         destination    => $xpath->findvalue('/samlp:Response/@Destination'),
         attributes     => $attributes,
         session        => $xpath->findvalue('//saml:AuthnStatement/@SessionIndex'),
         $nameid ? (nameid => $nameid) : (),
-        audience       => $xpath->findvalue('//saml:Conditions/saml:AudienceRestriction/saml:Audience'),
+        $audience ? ( audience => $audience) : (),
         not_before     => $not_before,
         not_after      => $not_after,
         xpath          => $xpath,
