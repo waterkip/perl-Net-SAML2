@@ -1,5 +1,3 @@
-use strict;
-use warnings;
 package Net::SAML2::Role::ProtocolMessage;
 # VERSION
 
@@ -7,12 +5,15 @@ use Moose::Role;
 
 # ABSTRACT: Common behaviour for Protocol messages
 
+use feature qw(state);
+
 use namespace::autoclean;
 
 use DateTime;
 use MooseX::Types::URI qw/ Uri /;
 use Net::SAML2::Util qw(generate_id);
 use Net::SAML2::Types qw(XsdID);
+use URN::OASIS::SAML2 qw(:status);
 
 =head1 NAME
 
@@ -66,6 +67,12 @@ has destination => (
     predicate => 'has_destination',
 );
 
+has in_response_to => (
+    isa       => XsdID,
+    is        => 'ro',
+    predicate => 'has_in_response_to',
+);
+
 sub _build_issue_instant {
     return DateTime->now(time_zone => 'UTC')->strftime('%FT%TZ');
 }
@@ -116,11 +123,12 @@ Legal short names for B<$status> are:
 
 =cut
 
+
 sub status_uri {
     my ($self, $status) = @_;
 
-    my $statuses = {
-        success   => 'urn:oasis:names:tc:SAML:2.0:status:Success',
+    state $statuses = {
+        success   => STATUS_SUCCESS(),
         requester => 'urn:oasis:names:tc:SAML:2.0:status:Requester',
         responder => 'urn:oasis:names:tc:SAML:2.0:status:Responder',
         partial   => 'urn:oasis:names:tc:SAML:2.0:status:PartialLogout',
@@ -131,6 +139,18 @@ sub status_uri {
     }
 
     return;
+}
+
+sub success {
+    my $self = shift;
+
+    if (!$self->can('status')) {
+        croak(
+            "You haven't implemented the status method, unable to determine success"
+        );
+    }
+
+    return $self->status eq STATUS_SUCCESS();
 }
 
 1;

@@ -6,6 +6,7 @@ package Net::SAML2::Protocol::LogoutResponse;
 use Moose;
 use MooseX::Types::URI qw/ Uri /;
 use Net::SAML2::XML::Util qw/ no_comments /;
+use Net::SAML2::Util qw/ deprecation_warning /;
 use XML::LibXML::XPathContext;
 
 with 'Net::SAML2::Role::ProtocolMessage';
@@ -55,9 +56,28 @@ request ID we're responding to
 
 =cut
 
-has 'status'      => (isa => 'Str', is => 'ro', required => 1);
-has 'substatus'   => (isa => 'Str', is => 'ro', required => 0);
-has 'response_to' => (isa => 'Str', is => 'ro', required => 1);
+has 'status'          => (isa      => 'Str', is => 'ro', required => 1);
+has 'substatus'       => (isa      => 'Str', is => 'ro', required => 0);
+has '+in_response_to' => (required => 1);
+
+
+# Remove response_to after 6 months from now (april 18th 2024)
+around BUILDARGS => sub {
+  my $orig = shift;
+  my $self = shift;
+  my %args = @_;
+
+  if (my $irt = delete $args{response_to}) {
+    $args{in_response_to} = $irt;
+    deprecation_warning("Please use in_response_to instead of response_to");
+  }
+  return $self->$orig(%args);
+};
+
+sub response_to {
+  my $self = shift;
+  return $self->in_response_to;
+}
 
 =head2 new_from_xml( ... )
 
@@ -86,7 +106,7 @@ sub new_from_xml {
 
     my $self = $class->new(
         id          => $xpath->findvalue('/samlp:LogoutResponse/@ID'),
-        response_to => $xpath->findvalue('/samlp:LogoutResponse/@InResponseTo'),
+        in_response_to => $xpath->findvalue('/samlp:LogoutResponse/@InResponseTo'),
         destination => $xpath->findvalue('/samlp:LogoutResponse/@Destination'),
         session     => $xpath->findvalue('/samlp:LogoutResponse/samlp:SessionIndex'),
         issuer      => $xpath->findvalue('/samlp:LogoutResponse/saml:Issuer'),
@@ -131,18 +151,6 @@ sub as_xml {
             )
         )
     );
-}
-
-=head2 success( )
-
-Returns true if the Response's status is Success.
-
-=cut
-
-sub success {
-    my ($self) = @_;
-    return 1 if $self->status eq $self->status_uri('success');
-    return 0;
 }
 
 __PACKAGE__->meta->make_immutable;
