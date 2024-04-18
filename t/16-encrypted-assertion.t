@@ -30,10 +30,10 @@ lives_ok(
 );
 
 my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(
-                        xml => decode_base64($response),
-                        key_file => 't/encrypted-sign-private.pem',
-                        cacert => 't/keycloak-cacert.pem',
-                        );
+    xml      => decode_base64($response),
+    key_file => 't/encrypted-sign-private.pem',
+    cacert   => 't/keycloak-cacert.pem',
+);
 
 isa_ok($assertion, 'Net::SAML2::Protocol::Assertion');
 

@@ -10,6 +10,7 @@ my $xml = path('t/data/eherkenning-decrypted.xml')->slurp;
 
 my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(
     xml      => $xml,
+    audience => 'urn:etoegang:DV:0000000398765432100000:entities:9009'
 );
 
 isa_ok($assertion, 'Net::SAML2::Protocol::Assertion');

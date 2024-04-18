@@ -15,6 +15,7 @@ use XML::LibXML::XPathContext;
 use List::Util qw(first);
 use URN::OASIS::SAML2 qw(STATUS_SUCCESS);
 use Carp qw(croak);
+use Net::SAML2::Types qw(XsdID);
 
 with 'Net::SAML2::Role::ProtocolMessage';
 
@@ -33,7 +34,7 @@ Net::SAML2::Protocol::Assertion - SAML2 assertion object
 =cut
 
 has 'attributes' => (isa => 'HashRef[ArrayRef]', is => 'ro', required => 1);
-has 'audience'   => (isa => NonEmptySimpleStr, is => 'ro', required => 1);
+has 'audience'   => (isa => NonEmptySimpleStr, is => 'ro', required => 0);
 has 'not_after'  => (isa => DateTime,          is => 'ro', required => 1);
 has 'not_before' => (isa => DateTime,          is => 'ro', required => 1);
 has 'session'         => (isa => 'Str', is => 'ro', required => 1);
@@ -166,48 +167,99 @@ sub new_from_xml {
     );
     $xpath->setContextNode($dec);
 
+    my $assertions = $xpath->findnodes('//samlp:Response/saml:Assertion|//samlp:Response/saml:EncryptedAssertion/saml:Assertion');
+    croak "Unable to determine assertion node" unless $assertions->size;
+
+    my @assertions;
+    my $must_warn = 1;
+    $assertions->foreach(
+        sub {
+            if ($args{audience}) {
+                my $audiences = $xpath->findnodes(
+                    "saml:Conditions/saml:AudienceRestriction/saml:Audience[text()='$args{audience}']",
+                    $_
+                );
+                return unless $audiences->size;
+                push(@assertions, $_);
+            }
+            else {
+
+                my $conditions = $xpath->findnodes("saml:Conditions", $_);
+                if (!$conditions->size) {
+                    push(@assertions, $_);
+                    return;
+                }
+
+                my $node = $_;
+                $conditions->foreach(
+                    sub {
+                        my $audiences = $xpath->findnodes(
+                            "saml:AudienceRestriction/saml:Audience", $_);
+                        return unless $audiences->size;
+                        if ($must_warn) {
+                            Net::SAML2::Util::deprecation_warning(
+                                "You don't have an audience defined, this is incorrect behaviour."
+                                  . " Please specify one, this will become mandatory in two releases."
+                            );
+                            $must_warn = 0;
+                        }
+                        push(@assertions, $node);
+                    }
+                );
+            }
+        }
+    );
+
+    my ($issuer, $id, $not_before, $not_after);
     my $attributes = {};
-    for my $node ($xpath->findnodes('//saml:Assertion/saml:AttributeStatement/saml:Attribute/saml:AttributeValue/..'))
-    {
-        my @values = $xpath->findnodes("saml:AttributeValue", $node);
-        $attributes->{$node->getAttribute('Name')} = [map $_->string_value, @values];
-    }
-
-    my $xpath_base = '//samlp:Response/saml:Assertion/saml:Conditions/';
-
-    my $not_before;
-    if (my $value = $xpath->findvalue($xpath_base . '@NotBefore')) {
-        $not_before = DateTime::Format::XSD->parse_datetime($value);
-    }
-    elsif (my $global = $xpath->findvalue('//saml:Conditions/@NotBefore')) {
-        $not_before = DateTime::Format::XSD->parse_datetime($global);
-    }
-    else {
-        $not_before = DateTime::HiRes->now();
-    }
-
-    my $not_after;
-    if (my $value = $xpath->findvalue($xpath_base . '@NotOnOrAfter')) {
-        $not_after = DateTime::Format::XSD->parse_datetime($value);
-    }
-    elsif (my $global = $xpath->findvalue('//saml:Conditions/@NotOnOrAfter')) {
-        $not_after = DateTime::Format::XSD->parse_datetime($global);
-    }
-    else {
-        $not_after = DateTime->from_epoch(epoch => time() + 1000);
-    }
-
     my $nameid;
-    if (my $node = $xpath->findnodes('/samlp:Response/saml:Assertion/saml:Subject/saml:NameID')) {
-        $nameid = $node->get_node(1);
-    }
-    elsif (my $global = $xpath->findnodes('//saml:Subject/saml:NameID')) {
-        $nameid = $global->get_node(1);
-    }
 
     my $authnstatement;
-    if (my $node = $xpath->findnodes('/samlp:Response/saml:Assertion/saml:AuthnStatement')) {
-        $authnstatement = $node->get_node(1);
+
+    foreach (@assertions) {
+      if (!$issuer) {
+        if (my $i = $xpath->findvalue('saml:Issuer', $_)) {
+          $issuer = $i;
+        }
+      }
+      if (!$id) {
+        if (my $i = $_->getAttribute('ID')) {
+          $id = $i;
+        }
+      }
+
+      for my $node ($xpath->findnodes('//saml:AttributeStatement/saml:Attribute/saml:AttributeValue/..', $_))
+      {
+          my @values = $xpath->findnodes("saml:AttributeValue", $node);
+          $attributes->{$node->getAttribute('Name')} = [map $_->string_value, @values];
+      }
+      if (!$not_before) {
+        if (my $value = $xpath->findvalue('saml:Conditions/@NotBefore', $_)) {
+            $not_before = DateTime::Format::XSD->parse_datetime($value);
+        }
+      }
+
+      if (!$not_after) {
+        if (my $value = $xpath->findvalue('saml:Conditions/@NotOnOrAfter', $_)) {
+            $not_after = DateTime::Format::XSD->parse_datetime($value);
+        }
+      }
+
+      $not_before = DateTime->now() unless $not_before;
+      $not_after = $not_before->add(seconds => 1000) unless $not_after;
+
+      if (!$nameid) {
+        if (my $node = $xpath->findnodes('saml:Subject/saml:NameID', $_)) {
+            $nameid = $node->get_node(1);
+        }
+      }
+
+      if (!$authnstatement) {
+        if (my $node = $xpath->findnodes('//saml:Assertion/saml:AuthnStatement')) {
+            $authnstatement = $node->get_node(1);
+        }
+      }
+
     }
 
     my $nodeset = $xpath->findnodes('/samlp:Response/samlp:Status/samlp:StatusCode|/samlp:ArtifactResponse/samlp:Status/samlp:StatusCode');
@@ -222,14 +274,16 @@ sub new_from_xml {
         $sub_status = $s->getAttribute('Value');
     }
 
+    my $audience = $xpath->findvalue('//saml:Conditions/saml:AudienceRestriction/saml:Audience');
+
     my $self = $class->new(
-        id             => $xpath->findvalue('//saml:Assertion/@ID'),
-        issuer         => $xpath->findvalue('//saml:Assertion/saml:Issuer'),
+        id             => $id,
+        issuer         => $issuer,
         destination    => $xpath->findvalue('/samlp:Response/@Destination'),
         attributes     => $attributes,
         session        => $xpath->findvalue('//saml:AuthnStatement/@SessionIndex'),
         $nameid ? (nameid => $nameid) : (),
-        audience       => $xpath->findvalue('//saml:Conditions/saml:AudienceRestriction/saml:Audience'),
+        $audience ? ( audience => $audience) : (),
         not_before     => $not_before,
         not_after      => $not_after,
         xpath          => $xpath,
