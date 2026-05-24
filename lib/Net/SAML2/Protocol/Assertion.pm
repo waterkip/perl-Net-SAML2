@@ -23,7 +23,11 @@ with 'Net::SAML2::Role::ProtocolMessage';
 =head1 SYNOPSIS
 
   my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(
-    xml => decode_base64($SAMLResponse)
+    xml         => decode_base64($SAMLResponse),
+    cacert      => 'cacert.pem',        # Required to securely validate Assertions
+    key_file    => 'private.key',       # Required for Encrypted Assertions
+    issuer      => $idp->{entity_id},   # May be required in future version
+    destination => 'SP Destination',    # May be required in future version
   );
 
 =cut
@@ -85,6 +89,31 @@ when the EncryptedAssertion is decrypted.
 While optional it is recommended for ensuring that the Assertion in an
 EncryptedAssertion is properly validated.
 
+=item B<issuer>
+
+Specifies the expected Issuer value in the Assertion.  Results in a croak
+if defined and the value does not match the value in the Assertion.
+
+It would be the $idp->{entity_id}
+
+While optional it is recommended for ensuring that the Assertion is properly
+validated.
+
+B<Notice>: This may become required in a future version.
+
+=item B<destination>
+
+Specifies the expected destination value in the Assertion.  Results in a croak
+if defined and the value does not match the value in the Assertion.
+
+It would be the B<Location> field of the assertion_consumer_service for the
+Binding that you are receiving the Assertion via (POST).
+
+While optional it is recommended for ensuring that the Assertion is properly
+validated.
+
+B<Notice>: This may become required in a future version.
+
 =back
 
 =cut
@@ -138,6 +167,8 @@ sub new_from_xml {
 
     my $key_file = $args{key_file};
     my $cacert   = delete $args{cacert};
+    my $issuer   = delete $args{issuer};
+    my $destination   = delete $args{destination};
 
     my $xpath = XML::LibXML::XPathContext->new();
     $xpath->registerNs('saml',  'urn:oasis:names:tc:SAML:2.0:assertion');
@@ -147,6 +178,14 @@ sub new_from_xml {
 
     my $xml = no_comments($args{xml});
     $xpath->setContextNode($xml);
+
+    my $actual_destination = $xpath->findvalue('/samlp:Response/@Destination');
+    if (defined $destination && ($destination ne $actual_destination)) {
+        croak(sprintf("Response Destination (%s) does not match expected value (%s)",
+                $actual_destination,
+                $destination)
+            );
+    }
 
     $xml = $class->_verify_encrypted_assertion(
         $xml,
@@ -218,10 +257,18 @@ sub new_from_xml {
         $substatus = $s->getAttribute('Value');
     }
 
+    my $actual_issuer = $xpath->findvalue('//saml:Assertion/saml:Issuer');
+    if (defined $issuer && ($issuer ne $actual_issuer)) {
+        croak(sprintf("Assertion Issuer (%s) does not match expected value (%s)",
+                $actual_issuer,
+                $issuer)
+            );
+    }
+
     my $self = $class->new(
         id             => $xpath->findvalue('//saml:Assertion/@ID'),
         issuer         => $xpath->findvalue('//saml:Assertion/saml:Issuer'),
-        destination    => $xpath->findvalue('/samlp:Response/@Destination'),
+        destination    => $actual_destination,
         attributes     => $attributes,
         session        => $xpath->findvalue('//saml:AuthnStatement/@SessionIndex'),
         $nameid ? (nameid => $nameid) : (),
@@ -445,7 +492,7 @@ sub contextclass_authncontextclassref {
     return $authncontextclassref;
 }
 
-=head2 valid( $audience, $in_response_to )
+=head2 valid( $audience, $in_response_to, $issuer, $destination )
 
 Returns true if this Assertion is currently valid for the given audience.
 
@@ -456,16 +503,47 @@ that the assertion that was received was for the request that was made.
 Checks the audience matches, and that the current time is within the
 Assertions validity period as specified in its Conditions element.
 
+Optionally it also checks that the $issuer and $destination matches
+the values provided in the Assertion.
+
+Parameters:
+
+=over
+
+=item $audience: Intended Audience for the Assertion
+
+=item $in_response_to: the orginal SAML request ID
+
+It checks against the returned Assertion.  This is very important for security
+as it helps ensure that the assertion that was received was for the request
+that was made.
+
+=item $issuer: The IdP configured Issuer
+
+Checks to ensure that the Issuer in the Assertion is the expected value.
+
+=item $destination: The SP Destination
+
+Checks to ensure that the Destination in the Response is the expected value.
+
+=back
+
 =cut
 
 sub valid {
-    my ($self, $audience, $in_response_to) = @_;
+    my ($self, $audience, $in_response_to, $issuer, $destination) = @_;
 
     return 0 unless defined $audience;
     return 0 unless($audience eq $self->audience);
 
     return 0 unless !defined $in_response_to
         or $in_response_to eq $self->in_response_to;
+
+    return 0 unless !defined $issuer
+        or $issuer eq $self->issuer;
+
+    return 0 unless !defined $destination
+        or $destination eq $self->destination;
 
     my $now = DateTime::HiRes->now;
 

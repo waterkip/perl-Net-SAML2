@@ -96,7 +96,7 @@ has assertions => (
 
 =head1 METHODS
 
-=head2 $self->new_from_xml(xml => $xml)
+=head2 $self->new_from_xml(xml => $xml, destination => $destination)
 
 Creates the response object based on the response XML
 
@@ -107,10 +107,20 @@ sub new_from_xml {
     my %args = @_;
 
     my $xml = no_comments($args{xml});
+    my $destination = delete $args{destination};
 
     my $xpath = XML::LibXML::XPathContext->new($xml);
     $xpath->registerNs('saml',  URN_ASSERTION);
     $xpath->registerNs('samlp', URN_PROTOCOL);
+
+    my $actual_destination = $xpath->findvalue(
+        '/samlp:Response/@Destination | /samlp:ArtifactResponse/@Destination');
+    if (defined $destination && $destination ne $actual_destination) {
+        croak(sprintf("Response Destination (%s) does not match expected value (%s)",
+                $actual_destination,
+                $destination)
+        );
+    }
 
     my $response = $xpath->findnodes('/samlp:Response|/samlp:ArtifactResponse');
     croak("Unable to parse response") unless $response->size;
