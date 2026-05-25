@@ -581,7 +581,7 @@ sub _decrypt {
             key                => $options{key_file},
         }
     );
-    return XML::LibXML->load_xml(string => $enc->decrypt($xml, %options));
+    return no_comments($enc->decrypt($xml, %options));
 }
 
 1;
