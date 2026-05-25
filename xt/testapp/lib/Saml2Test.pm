@@ -18,6 +18,7 @@ use Net::SAML2;
 use MIME::Base64 qw/ decode_base64 /;
 use File::Slurper qw/ read_dir /;
 use URN::OASIS::SAML2 qw(:bindings :urn);
+use List::Util qw(first none);
 
 our $VERSION = '0.3';
 
@@ -320,6 +321,7 @@ post '/consumer-post' => sub {
     load_config($idp_name);
     config->{idp} = 'http://localhost:8880/IdPs/' . $idp_name . '/metadata.xml';
     my $idp = _idp();
+    my $sp = _sp();
 
     my $post = Net::SAML2::Binding::POST->new(
         cacert => $cacert,
@@ -331,10 +333,15 @@ post '/consumer-post' => sub {
 
     if ($ret) {
 
+        my $expected_destination = first { $_->{Binding} eq 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST' }
+            @{ $sp->assertion_consumer_service };
+
         my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(
             xml         => decode_base64(params->{SAMLResponse}),
             key_file    => config->{key},
             cacert      => config->{cacert},
+            issuer      => $idp->{entity_id},
+            destination => $expected_destination->{Location},
         );
 
         if (! $assertion->valid(config->{issuer})) {
@@ -453,9 +460,14 @@ any '/consumer-artifact' => sub {
             xml => $soap_response );
 
     if ($artifact->success) {
+        my $expected_destination = first { $_->{Binding} eq 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact' }
+            @{ $sp->assertion_consumer_service };
+
         my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(
-            key_file => config->{key},
-            xml => $artifact->get_response(),
+            key_file    => config->{key},
+            xml         => $artifact->get_response(),
+            issuer      => $idp->{entity_id},
+            destination => $expected_destination->{Location},
         );
 
         if ( ! $assertion->valid(config->{issuer})) {
