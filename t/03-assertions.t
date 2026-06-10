@@ -65,7 +65,38 @@ my $xml = <<XML;
 </samlp:Response>
 XML
 
+throws_ok(sub { Net::SAML2::Protocol::Assertion->new_from_xml(
+                    xml => $xml,
+                    issuer => 'INCORRECT_ISSUER'
+                );},
+                qr/Assertion Issuer \(http:\/\/sso.dev.venda.com\/opensso\) does not match expected value \(INCORRECT_ISSUER\)/,
+                'Incorrect Issuer will croak'
+        );
+
+lives_ok(sub { Net::SAML2::Protocol::Assertion->new_from_xml(
+                    xml => $xml,
+                    issuer => 'http://sso.dev.venda.com/opensso'
+                );},
+                'Correct Issuer will not croak'
+        );
+
+lives_ok(sub { Net::SAML2::Protocol::Assertion->new_from_xml(
+                    xml => $xml,
+                    destination => 'http://ct.local/saml/consumer-post'
+                );},
+                'Correct Destination will not croak'
+        );
+
+throws_ok(sub { Net::SAML2::Protocol::Assertion->new_from_xml(
+                    xml => $xml,
+                    destination => 'INCORRECT_DESTINATION'
+                );},
+                qr/Response Destination \(http:\/\/ct.local\/saml\/consumer-post\) does not match expected value \(INCORRECT_DESTINATION\)/,
+                'Incorrect Destination will croak'
+        );
+
 my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(xml => $xml);
+
 isa_ok($assertion, 'Net::SAML2::Protocol::Assertion');
 
 is($assertion->{id},
@@ -109,6 +140,33 @@ $assertion->{not_after} = DateTime->now->add(minutes => 15);
 is($assertion->valid('http://ct.local'), 1, "ct.local is valid now - InResponseTo not Checked");
 is($assertion->valid('http://ct.local', 'N3k95Hg41WCHdwc9mqXynLPhB'), 1, "ct.local is valid now - InResponseTo Checked");
 is($assertion->valid('http://ct.local', 'N3k95Hg41WCHdwc9mqXyn'), 0, "Invalid InResponseTo Checked and failed");
+
+# Check the Issuer
+is($assertion->valid('http://ct.local', 'N3k95Hg41WCHdwc9mqXynLPhB' , 'http://sso.dev.venda.com/opensso'), 1, "Audience, InResponseTo and Issuer are valid");
+is($assertion->valid('http://ct.local', 'N3k95Hg41WCHdwc9mqXynLPhBWRONG' , 'http://sso.dev.venda.com/opensso'), 0, "InResponseTo is incorrect");
+is($assertion->valid('http://ct.local', 'N3k95Hg41WCHdwc9mqXynLPhB' , 'Wrong Issuer'), 0, "Issuer is invalid");
+
+# Check the Destination
+is($assertion->valid('http://ct.local',         # Audience
+        'N3k95Hg41WCHdwc9mqXynLPhB',            # InResponseTo
+        'http://sso.dev.venda.com/opensso',     # Issuer
+        'http://ct.local/saml/consumer-post',   # Destination
+        ),
+        1, "Audience, InResponseTo, Issuer and Destination are valid");
+
+is($assertion->valid('http://ct.local',         # Audience
+        'N3k95Hg41WCHdwc9mqXynLPhB',            # InResponseTo
+        'Wrong Issuer',                         # Issuer
+        'http://ct.local/saml/consumer-post',   # Destination
+        ),
+        0, "Issuer is invalid");
+
+is($assertion->valid('http://ct.local',         # Audience
+        'N3k95Hg41WCHdwc9mqXynLPhB',            # InResponseTo
+        'http://sso.dev.venda.com/opensso',     # Issuer
+        'Wrong Destination',                    # Destination
+        ),
+        0, "Response Destination is invalid");
 
 $assertion->{not_before} = DateTime->now->add(minutes => 5);
 is($assertion->valid('http://ct.local'), 0, "and invalid again - InResponseTo not Checked");

@@ -8,7 +8,10 @@ use URN::OASIS::SAML2 qw(STATUS_RESPONDER STATUS_AUTH_FAILED);
 
 sub get_object {
   my $xml = path(shift)->slurp;
-  my $response = Net::SAML2::Object::Response->new_from_xml(xml => $xml);
+  my $destination = shift;
+  my $response = Net::SAML2::Object::Response->new_from_xml(xml => $xml,
+                    defined $destination ? (destination => $destination) : (),
+                );
   isa_ok($response, 'Net::SAML2::Object::Response');
   return $response;
 }
@@ -23,6 +26,10 @@ sub get_object {
 
 
 {
+  throws_ok(sub{get_object('t/data/eherkenning-assertion.xml', 'INCORRECT_DESTINATION');},
+      qr/Response Destination \(https:\/\/test.zaaksysteem.nl\/auth\/saml\/consumer-post\) does not match expected value \(INCORRECT_DESTINATION\)/, "Incorrect Destination fails as expected");
+  lives_ok(sub{get_object('t/data/eherkenning-assertion.xml', 'https://test.zaaksysteem.nl/auth/saml/consumer-post');},
+      "correct Destination lives as expected");
   my $response = get_object('t/data/eherkenning-assertion.xml');
   ok($response->has_assertions, "We have an assertion");
   ok($response->success, "It was successful");
@@ -34,7 +41,9 @@ sub get_object {
 
 
 {
-  my $response = get_object('t/data/response-no-assertion.xml');
+  throws_ok(sub{get_object('t/data/response-no-assertion.xml', 'INCORRECT_DESTINATION');},
+      qr/Response Destination \(\[our SAML callback url\]\) does not match expected value \(INCORRECT_DESTINATION\)/, "Incorrect Destination fails as expected");
+  my $response = get_object('t/data/response-no-assertion.xml', '[our SAML callback url]');
   ok(!$response->has_assertions, "We don't have an assertion");
   ok(!$response->success, "Unsuccessful response");
   is($response->status, STATUS_RESPONDER(), "... because its a status:Responder");

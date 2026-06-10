@@ -81,6 +81,13 @@ __END__
 
   # handle the POST back from the IdP, via the browser:
 
+        # Get the Assertion Consumer Service
+        # $acs->{Location} can then be used to specify the
+        # expected destination (you may choose other methods)
+
+        my $acs = first { $_->{Binding} eq 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST' }
+            @{ $sp->assertion_consumer_service };
+
         my $post = Net::SAML2::Binding::POST->new;
         my $ret = $post->handle_response(
                 $saml_response
@@ -91,6 +98,8 @@ __END__
                         xml         => decode_base64($saml_response),
                         key_file    => "SP-Private-Key.pem",    # Required for EncryptedAssertions
                         cacert      => "IdP-cacert.pem",        # Required for EncryptedAssertions
+                        issuer      => $idp->{entity_id},       # Maybe required in the future
+                        destination => $acs->{Location},        # Maybe required in the future
                 );
 
                 # ...
